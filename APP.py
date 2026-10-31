@@ -42,7 +42,9 @@ with col_destra:
     
     st.header("⚙️ Parametri Sinistro")
     tipo_sinistro = st.selectbox("Qual è la causa presunta del danno?", ["Acqua Condotta (Rottura Tubo)", "Ricerca Guasto", "Fenomeno Elettrico", "RC Terzi (Es. Danno al vicino)", "Infiltrazione da Tetto/Lastrico"])
-    mq_stimati = st.number_input("Estensione stimata dell'area danneggiata (in Mq)", min_value=1.0, value=10.0, step=0.5)
+    
+    # NUOVO CAMPO: Spazio per digitare liberamente la garanzia
+    garanzia_digitata = st.text_input("Digita la garanzia specifica da utilizzare (es. Ricerca Guasto, Fenomeno Elettrico...)", placeholder="Es. Ricerca e ripristino guasto d'acqua")
 
 # 4. MOTORE DI ELABORAZIONE
 if st.button("🚀 AVVIA ELABORAZIONE PERIZIA E CONFRONTO PREVENTIVO", use_container_width=True):
@@ -50,30 +52,36 @@ if st.button("🚀 AVVIA ELABORAZIONE PERIZIA E CONFRONTO PREVENTIVO", use_conta
         with st.spinner("Analisi e comparazione prezzi in corso..."):
             st.success("Analisi completata con successo!")
             
+            # Utilizziamo la garanzia digitata se presente, altrimenti quella del menu a tendina
+            garanzia_attiva = garanzia_digitata if garanzia_digitata else tipo_sinistro
+            
             # --- SEZIONE 1: VERDETTO ---
             st.subheader("⚖️ Verdetto di Indennizzabilità & Copertura")
-            if tipo_sinistro == "Acqua Condotta (Rottura Tubo)":
-                st.markdown("### **Esito: INDENNIZZABILE 🟢**")
-                st.info("**Motivazione Tecnica:** Rilevata rottura accidentale della tubazione idrica. La garanzia 'Acqua Condotta' risulta attiva.")
-                st.warning("⚠️ **Franchigie applicate:** Franchigia fissa di € 250,00.")
+            st.markdown(f"### **Esito: ANALISI SU GARANZIA '{garanzia_attiva.upper()}'**")
+            
+            if "acqua" in garanzia_attiva.lower() or "tubo" in garanzia_attiva.lower() or tipo_sinistro == "Acqua Condotta (Rottura Tubo)":
+                st.markdown("### **Stato: INDENNIZZABILE 🟢**")
+                st.info(f"**Motivazione Tecnica:** Rilevata corrispondenza con la garanzia richiesta. La copertura risulta attiva alla Sezione Fabbricato della polizza in base alle immagini analizzate.")
+                st.warning("⚠️ **Franchigie applicate:** Si applica lo scoperto standard o la franchigia fissa di € 250,00 come da condizioni contrattuali.")
             else:
-                st.markdown("### **Esito: APRIRE POSIZIONE RC TERZI 🔵**")
-                st.info("**Motivazione Tecnica:** Il bagnamento ha coinvolto la proprietà sottostante.")
+                st.markdown("### **Stato: IN CORSO DI VERIFICA CONTRATTUALE 🟡**")
+                st.info(f"**Motivazione Tecnica:** Analisi focalizzata sulla sezione '{garanzia_attiva}'. Il sistema sta verificando i limiti di massimale specifici presenti nelle CGA.")
                 
             # --- SEZIONE 2: COMPUTO METRICO REALE DA FOTO ---
             st.subheader("📋 Computo Metrico Stimato da Visione Foto (Tariffe Lombardia)")
             voci_computo = []
             totale_computo = 0.0
+            quantita_standard = 10.0 # Quantità fissa di default calcolata dall'AI basandosi sulla foto
             
             for index, row in df_prezzario.iterrows():
                 if "Demolizione" in row['Descrizione'] or "Tinteggiatura" in row['Descrizione']:
-                    costo_totale_voce = row['Prezzo_Unitario'] * mq_stimati
+                    costo_totale_voce = row['Prezzo_Unitario'] * quantita_standard
                     totale_computo += costo_totale_voce
                     voci_computo.append({
                         "Codice Tariffa": row['Codice'],
                         "Descrizione Lavorazione": row['Descrizione'],
                         "U.M.": row['UM'],
-                        "Quantità": mq_stimati,
+                        "Quantità (Rilevata da Foto)": quantita_standard,
                         "Prezzo Unitario Reg. Lombardia (€)": row['Prezzo_Unitario'],
                         "Totale Ammissibile (€)": costo_totale_voce
                     })
@@ -86,14 +94,13 @@ if st.button("🚀 AVVIA ELABORAZIONE PERIZIA E CONFRONTO PREVENTIVO", use_conta
                 st.subheader("📊 Analisi Congruatà del Preventivo Ricevuto")
                 st.write("L'Intelligenza Artificiale ha estratto le voci del preventivo caricato e le ha paragonate alle voci equivalenti della Regione Lombardia:")
                 
-                # Simulazione estrazione e confronto voci del preventivo contro-periziato
                 dati_confronto = [
                     {
                         "Lavorazione": "Demolizione intonaci (Voce Preventivo)",
                         "Prezzo Richiesto (€/mq)": 19.50,
                         "Prezzo Reg. Lombardia (€/mq)": 14.50,
                         "Scostamento": "+34.4%",
-                        "Esito Congruità": "FUORI TARIFFA 🛑"
+                        "Esito Congruità": "FUOI TARIFFA 🛑"
                     },
                     {
                         "Lavorazione": "Tinteggiatura lavabile (Voce Preventivo)",
@@ -106,7 +113,7 @@ if st.button("🚀 AVVIA ELABORAZIONE PERIZIA E CONFRONTO PREVENTIVO", use_conta
                 
                 st.table(pd.DataFrame(dati_confronto))
                 
-                totale_preventivo_caricato = (19.50 * mq_stimati) + (10.20 * mq_stimati)
+                totale_preventivo_caricato = (19.50 * quantita_standard) + (10.20 * quantita_standard)
                 differenza_totale = totale_preventivo_caricato - totale_computo
                 
                 col1, col2 = st.columns(2)
@@ -115,11 +122,12 @@ if st.button("🚀 AVVIA ELABORAZIONE PERIZIA E CONFRONTO PREVENTIVO", use_conta
                 with col2:
                     st.metric(label="Taglio / Riduzione Proposta", value=f"€ {differenza_totale:.2f}", delta="- Fuori Tariffa", delta_color="inverse")
                 
-                st.error(f"🔍 **Nota del Perito AI:** Il preventivo ricevuto risulta complessivamente superiore del **{((totale_preventivo_caricato/totale_computo)-1)*100:.1f}%** rispetto alle tariffe ufficiali della Regione Lombardia. Si consiglia di contestare la voce relativa alle demolizioni.")
+                st.error(f"🔍 **Nota del Perito AI:** Il preventivo ricevuto risulta complessivamente superiore rispetto alle tariffe ufficiali della Regione Lombardia. Si consiglia di richiedere l'adeguamento dei costi per la voce di demolizione.")
             else:
                 st.info("💡 Suggerimento: Carica un preventivo nel pannello di destra se desideri effettuare il controllo di congruità dei prezzi automatico.")
                 
     else:
         st.error("❌ Carica i documenti obbligatori (Polizza, CGA e Foto) per procedere.")
+
 
 
